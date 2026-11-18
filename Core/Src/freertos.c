@@ -59,12 +59,20 @@ const osThreadAttr_t motorcontrol_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
+/* Definitions for motorfeedback */
+osThreadId_t motorfeedbackHandle;
+const osThreadAttr_t motorfeedback_attributes = {
+  .name = "motorfeedback",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
 
 void Motorcontrol(void *argument);
+void Motorfeedback(void *argument);
 
 static void ExecuteMotorCommand(char *command);
 
@@ -103,11 +111,21 @@ void MX_FREERTOS_Init(void) {
   /* Create the thread(s) */
   /* creation of motorcontrol */
   motorcontrolHandle = osThreadNew(Motorcontrol, NULL, &motorcontrol_attributes);
+  if (motorcontrolHandle == NULL)
+  {
+    Error_Handler();
+  }
+
+  /* creation of motorfeedback */
+  motorfeedbackHandle = osThreadNew(Motorfeedback, NULL, &motorfeedback_attributes);
+  if (motorfeedbackHandle == NULL)
+  {
+    Error_Handler();
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
-
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
@@ -128,6 +146,7 @@ void Motorcontrol(void *argument)
   uint8_t dropping_line = 0U;
   uint8_t received_byte;
 
+  (void)argument;
   ZDT42_Init();
   if (HAL_UART_Receive_IT(&huart2, (uint8_t *)&g_uart2_data, 1U) != HAL_OK)
   {
@@ -308,6 +327,61 @@ static void ExecuteMotorCommand(char *command)
                         sizeof("CMD_OK\r\n") - 1U, 100U) != HAL_OK)
   {
     Error_Handler();
+  }
+}
+
+/* USER CODE BEGIN Header_Motorfeedback */
+/**
+* @brief Function implementing the motorfeedback thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Motorfeedback */
+void Motorfeedback(void *argument)
+{
+  char tx_buf[32];
+  uint32_t wake_tick = osKernelGetTickCount();
+
+  (void)argument;
+
+  for (;;)
+  {
+    int16_t current_speed;
+    float current_pos;
+    int len;
+
+    if (osMutexAcquire(motorUartMutex, osWaitForever) != osOK)
+    {
+      Error_Handler();
+    }
+    current_speed = ZDT42_ReadSpeed(1);
+    if (osMutexRelease(motorUartMutex) != osOK)
+    {
+      Error_Handler();
+    }
+
+    osDelay(5U);
+
+    if (osMutexAcquire(motorUartMutex, osWaitForever) != osOK)
+    {
+      Error_Handler();
+    }
+    current_pos = ZDT42_ReadPosition(1);
+    if (osMutexRelease(motorUartMutex) != osOK)
+    {
+      Error_Handler();
+    }
+
+    len = sprintf(tx_buf, "%d,%d,0\n", (int)current_speed,
+                  (int)current_pos);
+    if (HAL_UART_Transmit(&huart2, (uint8_t *)tx_buf, (uint16_t)len,
+                          100U) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    wake_tick += pdMS_TO_TICKS(50U);
+    (void)osDelayUntil(wake_tick);
   }
 }
 
