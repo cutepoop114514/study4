@@ -371,8 +371,12 @@ void Motorfeedback(void *argument)
     {
       Error_Handler();
     }
+    
+    if (current_pos > 360.0f || current_pos < -360.0f) {
+    current_pos = 0.0f;
+}
 
-    len = sprintf(tx_buf, "%d,%d,0\n", (int)current_speed,
+    len = sprintf(tx_buf, "%d,%d,\n", (int)current_speed,
                   (int)current_pos);
     if (HAL_UART_Transmit(&huart2, (uint8_t *)tx_buf, (uint16_t)len,
                           100U) != HAL_OK)
